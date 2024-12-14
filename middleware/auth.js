@@ -1,26 +1,54 @@
 const jwt = require('jsonwebtoken');
-require("dotenv").config()
+require('dotenv').config();
+
 const auth = async (req, res, next) => {
     try {
-        // Get token from header
-        const token = req.header('Authorization')?.replace('Bearer ', '');
-        
-        if (!token) {
-            return res.status(401).json({ message: 'No authentication token, access denied' });
+        const authHeader = req.headers.authorization;
+        console.log('Auth middleware - Headers:', {
+            authorization: authHeader ? 'Present' : 'Missing',
+            contentType: req.headers['content-type']
+        });
+
+        if (!authHeader || !authHeader.startsWith('Bearer ')) {
+            return res.status(401).json({ 
+                message: 'Invalid authorization header format' 
+            });
         }
 
+        const token = authHeader.split(' ')[1];
+        
         try {
-            // Verify token
             const decoded = jwt.verify(token, process.env.JWT_SECRET);
-            
-            // Add user from payload
+            console.log('Token verification successful:', {
+                decodedId: decoded._id,
+                decodedEmail: decoded.email
+            });
+
+            // Make sure we have the required fields
+            if (!decoded._id || !decoded.email) {
+                return res.status(401).json({ 
+                    message: 'Token missing required fields' 
+                });
+            }
+
             req.user = decoded;
             next();
-        } catch (e) {
-            res.status(401).json({ message: 'Token is not valid' });
+        } catch (jwtError) {
+            console.error('Token verification failed:', {
+                error: jwtError.message,
+                type: jwtError.name
+            });
+            return res.status(401).json({ 
+                message: 'Invalid or expired token',
+                details: jwtError.message 
+            });
         }
     } catch (error) {
-        res.status(500).json({ message: 'Server Error' });
+        console.error('Auth middleware error:', error);
+        res.status(500).json({ 
+            message: 'Server error during authentication',
+            details: error.message 
+        });
     }
 };
 

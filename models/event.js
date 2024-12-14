@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const User = require('./users'); // Import the User model
 
 const EventSchema = new mongoose.Schema({
     eventId: {
@@ -161,7 +162,14 @@ EventSchema.methods.registerUser = async function(userId) {
 
     this.attendees.push(userId);
     this.availableSeats -= 1;
-    return this.save();
+    await this.save();
+
+    // Add the event ID to the user's registeredEvents
+    await User.findByIdAndUpdate(userId, {
+        $addToSet: { registeredEvents: this._id }
+    });
+
+    return this;
 };
 
 EventSchema.methods.unregisterUser = async function(userId) {

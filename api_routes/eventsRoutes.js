@@ -3,6 +3,7 @@ const router = express.Router();
 const Event = require('../models/event');
 const User = require('../models/users');
 const auth = require('../middleware/auth');
+const mongoose = require('mongoose');
 
 // Validation middleware
 const validateEventInput = (req, res, next) => {
@@ -104,23 +105,24 @@ router.get('/:id', async (req, res) => {
 });
 
 // Create event
-router.post('/createEvent', [auth, validateEventInput], async (req, res) => {
+router.post('/createEvent',async (req, res) => {
     try {
-        if (!req.user.isAdmin) {
-            return res.status(403).json({ message: 'Access denied. Admin only.' });
-        }
+        // if (!req.user.isAdmin) {
+        //     return res.status(403).json({ message: 'Access denied. Admin only.' });
+        // }
 
         const event = new Event({
             ...req.body,
             type: req.body.type.toLowerCase(),
             availableSeats: req.body.capacity,
             attendees: [],
-            createdBy: req.user._id
+            createdBy: req.body.createdBy
         });
 
         const savedEvent = await event.save();
         res.status(201).json(savedEvent);
     } catch (error) {
+        console.log(error);
         res.status(400).json({ message: error.message });
     }
 });
@@ -184,36 +186,63 @@ router.delete('/deleteEvent/:id', auth, async (req, res) => {
 // Register for event
 router.post('/register/:id', auth, async (req, res) => {
     try {
+        if (!req.user || !req.user._id) {
+            return res.status(401).json({ message: 'User not authenticated' });
+        }
+
         const event = await Event.findById(req.params.id);
         if (!event) {
             return res.status(404).json({ message: 'Event not found' });
         }
 
         const userId = req.user._id;
-        
-        if (event.attendees.includes(userId)) {
+
+        // Check if already registered
+        const isRegistered = event.attendees.includes(userId);
+        if (isRegistered) {
             return res.status(400).json({ message: 'Already registered for this event' });
         }
 
-        if (event.availableSeats <= 0) {
-            return res.status(400).json({ message: 'Event is full' });
+        // Start a session for atomic operations
+        const session = await mongoose.startSession();
+        session.startTransaction();
+
+        try {
+            // Add user to event attendees
+            event.attendees.push(userId);
+            if (typeof event.availableSeats === 'number') {
+                event.availableSeats -= 1;
+            }
+            await event.save({ session });
+
+            // Add event to user's registeredEvents
+            await User.findByIdAndUpdate(
+                userId,
+                { $addToSet: { registeredEvents: event._id } },
+                { session }
+            );
+
+            await session.commitTransaction();
+            
+            console.log('Registration successful:', {
+                eventId: event._id,
+                userId: userId,
+                attendeesCount: event.attendees.length
+            });
+
+            res.json(event);
+        } catch (error) {
+            await session.abortTransaction();
+            throw error;
+        } finally {
+            session.endSession();
         }
-
-        if (new Date(event.date) < new Date()) {
-            return res.status(400).json({ message: 'Cannot register for past events' });
-        }
-
-        // Use the model's method to handle registration logic
-        await event.registerUser(userId);
-
-        // Update user's registered events
-        await User.findByIdAndUpdate(userId, {
-            $addToSet: { registeredEvents: event.id }
-        });
-
-        res.json(event);
     } catch (error) {
-        console.log(error);
+        console.error('Registration error:', {
+            message: error.message,
+            eventId: req.params.id,
+            userId: req.user?._id
+        });
         res.status(400).json({ message: error.message });
     }
 });
@@ -256,16 +285,44 @@ router.post('/unregister/:id', auth, async (req, res) => {
 // Get user's registered events
 router.get('/user/registered', auth, async (req, res) => {
     try {
-        const user = await User.findById(req.user.id)
-            .populate({
-                path: 'registeredEvents',
-                match: { date: { $gte: new Date() } }, // Only future events
-                options: { sort: { date: 1 } }
-            });
+        if (!req.user || !req.user._id) {
+            return res.status(401).json({ message: 'User not authenticated' });
+        }
 
-        res.json(user.registeredEvents);
+        console.log('Fetching events for user:', req.user._id);
+
+        // First get the user with populated events
+        const user = await User.findById(req.user._id);
+        if (!user) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+
+        // Get all events where user is registered (either in attendees or registeredEvents)
+        const events = await Event.find({
+            $or: [
+                { _id: { $in: user.registeredEvents || [] } },
+                { attendees: req.user._id }
+            ],
+            date: { $gte: new Date() }
+        }).sort({ date: 1 });
+
+        console.log('Found events:', {
+            userId: req.user._id,
+            eventCount: events.length,
+            eventIds: events.map(e => e._id)
+        });
+
+        res.json(events);
     } catch (error) {
-        res.status(500).json({ message: error.message });
+        console.error('Error in /user/registered:', {
+            error: error.message,
+            stack: error.stack,
+            userId: req.user?._id
+        });
+        res.status(500).json({ 
+            message: 'Error fetching registered events',
+            details: error.message
+        });
     }
 });
 
