@@ -67,3 +67,4 @@ JWT_SECRET=your_jwt_secret
 - `GET /api/events/user/registered`: Get user's registered events
 
 
+
