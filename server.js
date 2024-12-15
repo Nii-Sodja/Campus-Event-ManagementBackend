@@ -12,10 +12,7 @@ const app = express();
 // Middleware
 app.use(express.json()); // Parse JSON requests
 app.use(cors({
-    origin: [
-        'http://localhost:5173',  // Local development
-        'https://campus-event-management-frontend.vercel.app'  // Production frontend
-    ],
+    origin:"*",
     credentials: true
 }));
 
