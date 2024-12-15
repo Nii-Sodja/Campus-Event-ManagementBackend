@@ -11,7 +11,13 @@ const app = express();
 
 // Middleware
 app.use(express.json()); // Parse JSON requests
-app.use(cors());         // Enable Cross-Origin Resource Sharing
+app.use(cors({
+    origin: [
+        'http://localhost:5173',  // Local development
+        'https://campus-event-management-frontend.vercel.app'  // Production frontend
+    ],
+    credentials: true
+}));
 
 app.use((req, res, next) => {
   console.log(`${req.method} ${req.path}`, {
