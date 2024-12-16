@@ -9,28 +9,37 @@ dotenv.config();
 // Initialize app
 const app = express();
 
-// Middleware
-app.use(express.json());
-
-// CORS configuration
-app.use(
-  cors({
-    origin: "*",
-  })
-);
-
-// Simple logging middleware
+// Enhanced logging middleware
 app.use((req, res, next) => {
-    console.log(`${req.method} ${req.path}`);
+    console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`, {
+        headers: req.headers,
+        body: req.body,
+        query: req.query
+    });
     next();
 });
 
-// Health check endpoint
-app.get('/health', (req, res) => {
+// Middleware
+app.use(express.json());
+app.use(cors({
+    origin: [
+      'http://localhost:5173',  
+      'http://localhost:5175',
+        'https://campus-event-management-frontend.vercel.app',
+        'https://c-f-sodjas-projects.vercel.app'
+    ],
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: true
+}));
+
+// API status endpoint
+app.get('/api/status', (req, res) => {
     res.json({
-        status: 'ok',
+        status: 'online',
+        timestamp: new Date().toISOString(),
         environment: process.env.NODE_ENV,
-        timestamp: new Date().toISOString()
+        mongodb: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected'
     });
 });
 
@@ -44,39 +53,98 @@ const connectDB = async () => {
             socketTimeoutMS: 45000,
         });
         console.log(`MongoDB Connected: ${conn.connection.host}`);
+        return true;
     } catch (error) {
         console.error('MongoDB connection error:', error);
-        process.exit(1);
+        return false;
     }
 };
 
 // Connect to MongoDB before starting the server
-connectDB().then(() => {
+const startServer = async () => {
+    const isConnected = await connectDB();
+    if (!isConnected) {
+        console.error('Failed to connect to MongoDB. Server will not start.');
+        process.exit(1);
+    }
+
+    // Add this before your routes
+    app.use((req, res, next) => {
+        console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`, {
+            headers: req.headers,
+            query: req.query,
+            body: req.method === 'POST' ? req.body : undefined
+        });
+        next();
+    });
+
     // API Routes
     app.use('/api/users', require('./api_routes/userRoutes'));
     app.use('/api/events', require('./api_routes/eventsRoutes'));
 
-    // Default Route
-    app.get('/', (req, res) => {
-        res.send('Campus Event Management System API is running...');
+    // Add a health check endpoint
+    app.get('/api/health', (req, res) => {
+        res.json({
+            status: 'ok',
+            timestamp: new Date().toISOString(),
+            mongodb: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected'
+        });
     });
 
-    // Health check route
-    app.get('/health', (req, res) => {
-        res.json({ status: 'ok', timestamp: new Date().toISOString() });
+    // Add this after your routes to catch unmatched routes
+    app.use((req, res) => {
+        console.log(`[404] Route not found: ${req.method} ${req.url}`);
+        res.status(404).json({
+            error: 'Not Found',
+            message: `Route ${req.method} ${req.url} not found`,
+            availableRoutes: {
+                events: '/api/events',
+                users: '/api/users',
+                auth: '/api/users/login'
+            }
+        });
+    });
+
+    // Root endpoint
+    app.get('/', (req, res) => {
+        res.json({
+            message: 'Campus Event Management System API',
+            version: '1.0.0',
+            endpoints: {
+                auth: '/api/users/login',
+                events: '/api/events',
+                status: '/api/status'
+            },
+            documentation: 'API documentation coming soon'
+        });
     });
 
     // Error handling middleware
     app.use((err, req, res, next) => {
-        console.error(err.stack);
+        console.error('Error:', err);
         res.status(500).json({
-            message: 'Something broke!',
-            error: process.env.NODE_ENV === 'development' ? err.message : 'Internal server error'
+            error: process.env.NODE_ENV === 'development' ? err.message : 'Internal server error',
+            timestamp: new Date().toISOString()
+        });
+    });
+
+    // 404 handler
+    app.use((req, res) => {
+        console.log(`404: ${req.method} ${req.url} not found`);
+        res.status(404).json({
+            message: 'Route not found',
+            requested: {
+                method: req.method,
+                url: req.url
+            }
         });
     });
 
     const PORT = process.env.PORT || 5000;
     app.listen(PORT, () => {
-        console.log(`Server running on port ${PORT}`);
+        console.log(`Server running on port ${PORT} in ${process.env.NODE_ENV} mode`);
+        console.log(`API available at: ${process.env.NODE_ENV === 'production' ? 'https://campus-event-managementbackend-2z5g.onrender.com' : `http://localhost:${PORT}`}`);
     });
-});
+};
+
+startServer().catch(console.error);

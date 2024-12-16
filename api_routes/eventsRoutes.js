@@ -28,8 +28,9 @@ const validateEventInput = (req, res, next) => {
 };
 
 // Get all events with optional search and filter
-router.get('/getEvents', async (req, res) => {
+router.get('/', async (req, res) => {
     try {
+        console.log('Fetching all events');
         const { search, type, date } = req.query;
         let query = {};
 
@@ -59,8 +60,10 @@ router.get('/getEvents', async (req, res) => {
             .sort({ date: 1 })
             .populate('attendees', 'name email');
             
+        console.log(`Found ${events.length} events`);
         res.json(events);
     } catch (error) {
+        console.error('Error fetching events:', error);
         res.status(500).json({ message: error.message });
     }
 });
@@ -296,14 +299,13 @@ router.get('/user/registered', auth, async (req, res) => {
         if (!user) {
             return res.status(404).json({ message: 'User not found' });
         }
-
         // Get all events where user is registered (either in attendees or registeredEvents)
         const events = await Event.find({
             $or: [
-                { _id: { $in: user.registeredEvents || [] } },
+                { _id: { $in: user.registeredEvents} },
                 { attendees: req.user._id }
             ],
-            date: { $gte: new Date() }
+            // date: { $gte: new Date() }
         }).sort({ date: 1 });
 
         console.log('Found events:', {
