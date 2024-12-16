@@ -26,7 +26,7 @@ app.use(cors({
       'http://localhost:5173',  
       'http://localhost:5175',
         'https://campus-event-management-frontend.vercel.app',
-        'https://c-f-sodjas-projects.vercel.app'
+        'https://campus-frontend-murex.vercel.app'
     ],
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
